@@ -1,0 +1,2 @@
+# Linux drivers course
+Materials from Linux drivers course at UWr. Kernel drivers implemented on subsequent labs provide more and more functionality. The modules were compiled for RISC-V 32-bit architecture and then tested in virtual enviroment under control of Renode (https://github.com/renode/renode) - tool created by Antmicro.
