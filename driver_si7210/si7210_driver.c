@@ -12,9 +12,11 @@
 #include <linux/i2c.h>
 #include <linux/iio/iio.h>
 #include <linux/regmap.h>
+#include <linux/math64.h>
 
 #define SI7210_REG_DSPSIGM	0xC1
 #define SI7210_REG_DSPSIGL	0xC2
+#define SI7210_BIT_TEMP_EN	BIT(0)
 #define SI7210_REG_DSPSIGSEL	0xC3
 #define SI7210_REG_ARAUTOINC	0xC5
 #define SI7210_REG_OTP_ADDR	0xE1
@@ -82,10 +84,63 @@ static const struct iio_chan_spec si7210_channels[] = {
 	},
 	{
 		.type = IIO_TEMP,
-		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
-			BIT(IIO_CHAN_INFO_SCALE) | BIT(IIO_CHAN_INFO_OFFSET)
+		.info_mask_separate = BIT(IIO_CHAN_INFO_PROCESSED)
 	}
 };
+
+static int si7210_read_raw(struct iio_dev *indio_dev,
+			   struct iio_chan_spec const *chan, int *val,
+			   int *val2, long mask)
+{
+	struct si7210_data *data = iio_priv(indio_dev);
+	long long tmp;
+	u8 dspsig[2];
+	unsigned int dspsigsel, arautoinc;
+	int ret;
+
+	switch (mask) {
+	case IIO_CHAN_INFO_PROCESSED:
+		switch (chan->type) {
+		case IIO_TEMP:
+			/* TODO: consider a separate function for read-modify-write */
+			ret = regmap_read(data->regmap, SI7210_REG_DSPSIGSEL, &dspsigsel);
+			if (ret < 0)
+				return ret;
+			ret = regmap_write(data->regmap, SI7210_REG_DSPSIGSEL, (u8)dspsigsel | SI7210_BIT_TEMP_EN);
+			if (ret < 0)
+				return ret;
+
+			/* TODO: consider setting arautoinc to 1 in device_init*/
+			ret = regmap_read(data->regmap, SI7210_REG_ARAUTOINC, &arautoinc);
+			if (ret < 0)
+				return ret;
+			ret = regmap_write(data->regmap, SI7210_REG_ARAUTOINC, (u8)arautoinc | 0x01);
+			if (ret < 0)
+				return ret;
+
+			ret = regmap_bulk_read(data->regmap, SI7210_REG_DSPSIGM, dspsig, sizeof(dspsig));
+			if (ret < 0)
+				return ret;
+
+			/* value = 32 * dspsigm[6:0] + (dspsigl[7:0] >> 3) */
+			tmp = 32 * (dspsig[0] & 0x7F) + (dspsig[1] >> 3);
+			/* temp_raw = -3.83 * 1e-6 * value^2 + 0.16094 * value - 279.8 */
+			tmp = ((-383 * tmp * tmp) / 100 + (160940 * tmp - 279800000));
+			/* temperature = (1 + gain / 2048) * temp_raw + offset / 16 */
+			tmp = (1 + data->temp_gain / 2048) * tmp + 62500 * data->temp_offset;
+			/* temperature -= 0.222 * VDD, if VDD is unknown, then use VDD = 3.3 V" */
+			tmp -= 732600;
+ 
+			*val = div_s64_rem(tmp, 1000000, val2);
+
+			return IIO_VAL_INT_PLUS_MICRO;
+		default:
+			return -EINVAL;
+		}
+	default:
+		return -EINVAL;
+	}
+}
 
 static int si7210_read_otpreg_val(struct si7210_data *data, unsigned int otpreg, u8* val)
 {
@@ -149,6 +204,10 @@ static int si7210_device_init(struct si7210_data *data)
 	return 0;
 }
 
+static const struct iio_info si7210_info = {
+	.read_raw = si7210_read_raw,
+};
+
 static int si7210_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
 {
@@ -171,8 +230,7 @@ static int si7210_probe(struct i2c_client *client,
 
 	indio_dev->name = dev_name(&client->dev);
 	indio_dev->modes = INDIO_DIRECT_MODE;
-	/* TODO: define struct iio_info */
-	indio_dev->info = NULL;
+	indio_dev->info = &si7210_info;
 	indio_dev->channels = si7210_channels;
 	indio_dev->num_channels = ARRAY_SIZE(si7210_channels);
 
