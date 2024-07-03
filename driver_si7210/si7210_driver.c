@@ -16,12 +16,13 @@
 
 #define SI7210_REG_DSPSIGM	0xC1
 #define SI7210_REG_DSPSIGL	0xC2
-#define SI7210_BIT_TEMP_EN	BIT(0)
+#define SI7210_MASK_DSPSIGSEL	GENMASK(2, 0)
 #define SI7210_REG_DSPSIGSEL	0xC3
+#define SI7210_MASK_ARAUTOINC	BIT(0)
 #define SI7210_REG_ARAUTOINC	0xC5
 #define SI7210_REG_OTP_ADDR	0xE1
 #define SI7210_REG_OTP_DATA	0xE2
-#define SI7210_BIT_OTP_READ_EN	BIT(1)
+#define SI7210_MASK_OTP_READ_EN	BIT(1)
 #define SI7210_REG_OTP_CTRL	0xE3
 
 #define SI7210_OTPREG_TMP_OFF	0x1D
@@ -88,6 +89,25 @@ static const struct iio_chan_spec si7210_channels[] = {
 	}
 };
 
+/* From Si7210 datasheet: "When writing a particular bit field, it is best to use a
+read, modify, write procedure to ensure that other bit fields are not unintentionally
+changed (...) Unspecified bits should not be changed from the factory configuration." */
+static int si7210_read_modify_write(struct si7210_data *data, unsigned int reg, u8 mask, u8 val)
+{
+	unsigned int old;
+	int ret;
+
+	ret = regmap_read(data->regmap, reg, &old);
+	if (ret < 0)
+		return ret;
+
+	ret = regmap_write(data->regmap, reg, (u8)(old & ~mask) | val);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
+
 static int si7210_read_raw(struct iio_dev *indio_dev,
 			   struct iio_chan_spec const *chan, int *val,
 			   int *val2, long mask)
@@ -95,26 +115,19 @@ static int si7210_read_raw(struct iio_dev *indio_dev,
 	struct si7210_data *data = iio_priv(indio_dev);
 	long long tmp;
 	u8 dspsig[2];
-	unsigned int dspsigsel, arautoinc;
 	int ret;
 
 	switch (mask) {
 	case IIO_CHAN_INFO_PROCESSED:
 		switch (chan->type) {
 		case IIO_TEMP:
-			/* TODO: consider a separate function for read-modify-write */
-			ret = regmap_read(data->regmap, SI7210_REG_DSPSIGSEL, &dspsigsel);
-			if (ret < 0)
-				return ret;
-			ret = regmap_write(data->regmap, SI7210_REG_DSPSIGSEL, (u8)dspsigsel | SI7210_BIT_TEMP_EN);
+			ret = si7210_read_modify_write(data, SI7210_REG_DSPSIGSEL,
+							SI7210_MASK_DSPSIGSEL, 1);
 			if (ret < 0)
 				return ret;
 
-			/* TODO: consider setting arautoinc to 1 in device_init*/
-			ret = regmap_read(data->regmap, SI7210_REG_ARAUTOINC, &arautoinc);
-			if (ret < 0)
-				return ret;
-			ret = regmap_write(data->regmap, SI7210_REG_ARAUTOINC, (u8)arautoinc | 0x01);
+			ret = si7210_read_modify_write(data, SI7210_REG_ARAUTOINC,
+						SI7210_MASK_ARAUTOINC, SI7210_MASK_ARAUTOINC);
 			if (ret < 0)
 				return ret;
 
@@ -144,20 +157,14 @@ static int si7210_read_raw(struct iio_dev *indio_dev,
 
 static int si7210_read_otpreg_val(struct si7210_data *data, unsigned int otpreg, u8* val)
 {
-	unsigned int reg_otp_ctrl;
 	int ret;
 
 	ret = regmap_write(data->regmap, SI7210_REG_OTP_ADDR, otpreg);
 	if (ret < 0)
 		return ret;
 
-	/* "When writing a particular bit field, it is best to use a read, modify, write
-	procedure to ensure that other bit fields are not unintentionally changed."*/
-	ret = regmap_read(data->regmap, SI7210_REG_OTP_CTRL, &reg_otp_ctrl);
-	if (ret < 0)
-		return ret;
-	ret = regmap_write(data->regmap, SI7210_REG_OTP_CTRL,
-			reg_otp_ctrl | SI7210_BIT_OTP_READ_EN);
+	ret = si7210_read_modify_write(data,  SI7210_REG_OTP_CTRL, SI7210_MASK_OTP_READ_EN,
+					SI7210_MASK_OTP_READ_EN);
 	if (ret < 0)
 		return ret;
 
