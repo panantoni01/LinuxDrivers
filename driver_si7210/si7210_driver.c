@@ -120,43 +120,41 @@ static int si7210_read_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case IIO_CHAN_INFO_PROCESSED:
-		switch (chan->type) {
-		case IIO_TEMP:
-			ret = si7210_read_modify_write(data, SI7210_REG_DSPSIGSEL,
-							SI7210_MASK_DSPSIGSEL, 1);
-			if (ret < 0)
-				return ret;
-
-			ret = si7210_read_modify_write(data, SI7210_REG_ARAUTOINC,
-						SI7210_MASK_ARAUTOINC, SI7210_MASK_ARAUTOINC);
-			if (ret < 0)
-				return ret;
-			
-			ret = si7210_read_modify_write(data, SI7210_REG_POWER_CTRL,
-						SI7210_BIT_ONEBURST | SI7210_BIT_STOP,
-						SI7210_BIT_ONEBURST & ~SI7210_BIT_STOP);
-			if (ret < 0)
-				return ret;
-
-			ret = regmap_bulk_read(data->regmap, SI7210_REG_DSPSIGM, dspsig, sizeof(dspsig));
-			if (ret < 0)
-				return ret;
-
-			/* value = 32 * dspsigm[6:0] + (dspsigl[7:0] >> 3) */
-			tmp = 32 * (dspsig[0] & 0x7F) + (dspsig[1] >> 3);
-			/* temp_raw = -3.83 * 1e-6 * value^2 + 0.16094 * value - 279.8 */
-			tmp = ((-383 * tmp * tmp) / 100 + (160940 * tmp - 279800000));
-			/* temperature = (1 + gain / 2048) * temp_raw + offset / 16 */
-			tmp = (1 + data->temp_gain / 2048) * tmp + 62500 * data->temp_offset;
-			/* temperature -= 0.222 * VDD, if VDD is unknown, then use VDD = 3.3 V" */
-			tmp -= 732600;
- 
-			*val = div_s64_rem(tmp, 1000000, val2);
-
-			return IIO_VAL_INT_PLUS_MICRO;
-		default:
+		if (chan->type != IIO_TEMP)
 			return -EINVAL;
-		}
+
+		ret = si7210_read_modify_write(data, SI7210_REG_DSPSIGSEL,
+						SI7210_MASK_DSPSIGSEL, 1);
+		if (ret < 0)
+			return ret;
+
+		ret = si7210_read_modify_write(data, SI7210_REG_ARAUTOINC,
+					SI7210_MASK_ARAUTOINC, SI7210_MASK_ARAUTOINC);
+		if (ret < 0)
+			return ret;
+		
+		ret = si7210_read_modify_write(data, SI7210_REG_POWER_CTRL,
+					SI7210_BIT_ONEBURST | SI7210_BIT_STOP,
+					SI7210_BIT_ONEBURST & ~SI7210_BIT_STOP);
+		if (ret < 0)
+			return ret;
+
+		ret = regmap_bulk_read(data->regmap, SI7210_REG_DSPSIGM, dspsig, sizeof(dspsig));
+		if (ret < 0)
+			return ret;
+
+		/* value = 32 * dspsigm[6:0] + (dspsigl[7:0] >> 3) */
+		tmp = 32 * (dspsig[0] & 0x7F) + (dspsig[1] >> 3);
+		/* temp_raw = -3.83 * 1e-6 * value^2 + 0.16094 * value - 279.8 */
+		tmp = ((-383 * tmp * tmp) / 100 + (160940 * tmp - 279800000));
+		/* temperature = (1 + gain / 2048) * temp_raw + offset / 16 */
+		tmp = (1 + data->temp_gain / 2048) * tmp + 62500 * data->temp_offset;
+		/* temperature -= 0.222 * VDD, if VDD is unknown, then use VDD = 3.3 V" */
+		tmp -= 732600;
+
+		*val = div_s64_rem(tmp, 1000000, val2);
+
+		return IIO_VAL_INT_PLUS_MICRO;
 	default:
 		return -EINVAL;
 	}
