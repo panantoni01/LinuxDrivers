@@ -18,6 +18,9 @@
 #define SI7210_REG_DSPSIGL	0xC2
 #define SI7210_MASK_DSPSIGSEL	GENMASK(2, 0)
 #define SI7210_REG_DSPSIGSEL	0xC3
+#define SI7210_BIT_STOP		BIT(1)
+#define SI7210_BIT_ONEBURST	BIT(2)
+#define SI7210_REG_POWER_CTRL	0xC4
 #define SI7210_MASK_ARAUTOINC	BIT(0)
 #define SI7210_REG_ARAUTOINC	0xC5
 #define SI7210_REG_OTP_ADDR	0xE1
@@ -29,8 +32,7 @@
 #define SI7210_OTPREG_TMP_GAIN	0x1E
 
 static const struct regmap_range si7210_read_reg_ranges[] = {
-	regmap_reg_range(SI7210_REG_DSPSIGM, SI7210_REG_DSPSIGSEL),
-	regmap_reg_range(SI7210_REG_ARAUTOINC, SI7210_REG_ARAUTOINC),
+	regmap_reg_range(SI7210_REG_DSPSIGM, SI7210_REG_ARAUTOINC),
 	regmap_reg_range(SI7210_REG_OTP_ADDR, SI7210_REG_OTP_CTRL),
 };
 
@@ -40,8 +42,7 @@ static const struct regmap_access_table si7210_readable_regs = {
 };
 
 static const struct regmap_range si7210_write_reg_ranges[] = {
-	regmap_reg_range(SI7210_REG_DSPSIGSEL, SI7210_REG_DSPSIGSEL),
-	regmap_reg_range(SI7210_REG_ARAUTOINC, SI7210_REG_ARAUTOINC),
+	regmap_reg_range(SI7210_REG_DSPSIGSEL, SI7210_REG_ARAUTOINC),
 	regmap_reg_range(SI7210_REG_OTP_ADDR, SI7210_REG_OTP_CTRL),
 };
 
@@ -51,7 +52,7 @@ static const struct regmap_access_table si7210_writeable_regs = {
 };
 
 static const struct regmap_range si7210_volatile_reg_ranges[] = {
-	/* TODO: check if dsisigsel, arautoinc and otps are volatile */
+	/* TODO: check if dsisigsel, power_ctrl, arautoinc and otps are volatile */
 	regmap_reg_range(SI7210_REG_DSPSIGM, SI7210_REG_DSPSIGL),
 };
 
@@ -128,6 +129,12 @@ static int si7210_read_raw(struct iio_dev *indio_dev,
 
 			ret = si7210_read_modify_write(data, SI7210_REG_ARAUTOINC,
 						SI7210_MASK_ARAUTOINC, SI7210_MASK_ARAUTOINC);
+			if (ret < 0)
+				return ret;
+			
+			ret = si7210_read_modify_write(data, SI7210_REG_POWER_CTRL,
+						SI7210_BIT_ONEBURST | SI7210_BIT_STOP,
+						SI7210_BIT_ONEBURST & ~SI7210_BIT_STOP);
 			if (ret < 0)
 				return ret;
 
