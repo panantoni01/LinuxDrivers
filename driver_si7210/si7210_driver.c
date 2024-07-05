@@ -109,6 +109,42 @@ static int si7210_read_modify_write(struct si7210_data *data, unsigned int reg, 
 	return 0;
 }
 
+static int si7210_fetch_measurement(struct si7210_data* data,
+				    struct iio_chan_spec const *chan,
+				    void* buf)
+{
+	u8 dspsigsel;
+	int ret;
+
+	if (chan->type == IIO_MAGN)
+		dspsigsel = 0;
+	else /* IIO_TEMP */
+		dspsigsel = 1;
+
+	ret = si7210_read_modify_write(data, SI7210_REG_DSPSIGSEL,
+				SI7210_MASK_DSPSIGSEL, dspsigsel);
+	if (ret < 0)
+		return ret;
+
+	ret = si7210_read_modify_write(data, SI7210_REG_ARAUTOINC,
+				SI7210_MASK_ARAUTOINC, SI7210_MASK_ARAUTOINC);
+	if (ret < 0)
+		return ret;
+	
+	ret = si7210_read_modify_write(data, SI7210_REG_POWER_CTRL,
+				SI7210_BIT_ONEBURST | SI7210_BIT_STOP,
+				SI7210_BIT_ONEBURST & ~SI7210_BIT_STOP);
+	if (ret < 0)
+		return ret;
+
+	/* Read the contents of two registers containing the result: DSPSIGM and DSPSIGL */
+	ret = regmap_bulk_read(data->regmap, SI7210_REG_DSPSIGM, buf, 2);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
+
 static int si7210_read_raw(struct iio_dev *indio_dev,
 			   struct iio_chan_spec const *chan, int *val,
 			   int *val2, long mask)
@@ -120,23 +156,7 @@ static int si7210_read_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
-		ret = si7210_read_modify_write(data, SI7210_REG_DSPSIGSEL,
-						SI7210_MASK_DSPSIGSEL, 0);
-		if (ret < 0)
-			return ret;
-
-		ret = si7210_read_modify_write(data, SI7210_REG_ARAUTOINC,
-					SI7210_MASK_ARAUTOINC, SI7210_MASK_ARAUTOINC);
-		if (ret < 0)
-			return ret;
-		
-		ret = si7210_read_modify_write(data, SI7210_REG_POWER_CTRL,
-					SI7210_BIT_ONEBURST | SI7210_BIT_STOP,
-					SI7210_BIT_ONEBURST & ~SI7210_BIT_STOP);
-		if (ret < 0)
-			return ret;
-
-		ret = regmap_bulk_read(data->regmap, SI7210_REG_DSPSIGM, dspsig, sizeof(dspsig));
+		ret = si7210_fetch_measurement(data, chan, dspsig);
 		if (ret < 0)
 			return ret;
 		
@@ -155,23 +175,7 @@ static int si7210_read_raw(struct iio_dev *indio_dev,
 		if (chan->type != IIO_TEMP)
 			return -EINVAL;
 
-		ret = si7210_read_modify_write(data, SI7210_REG_DSPSIGSEL,
-						SI7210_MASK_DSPSIGSEL, 1);
-		if (ret < 0)
-			return ret;
-
-		ret = si7210_read_modify_write(data, SI7210_REG_ARAUTOINC,
-					SI7210_MASK_ARAUTOINC, SI7210_MASK_ARAUTOINC);
-		if (ret < 0)
-			return ret;
-		
-		ret = si7210_read_modify_write(data, SI7210_REG_POWER_CTRL,
-					SI7210_BIT_ONEBURST | SI7210_BIT_STOP,
-					SI7210_BIT_ONEBURST & ~SI7210_BIT_STOP);
-		if (ret < 0)
-			return ret;
-
-		ret = regmap_bulk_read(data->regmap, SI7210_REG_DSPSIGM, dspsig, sizeof(dspsig));
+		ret = si7210_fetch_measurement(data, chan, dspsig);
 		if (ret < 0)
 			return ret;
 
