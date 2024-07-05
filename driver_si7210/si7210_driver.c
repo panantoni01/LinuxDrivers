@@ -119,6 +119,38 @@ static int si7210_read_raw(struct iio_dev *indio_dev,
 	int ret;
 
 	switch (mask) {
+	case IIO_CHAN_INFO_RAW:
+		ret = si7210_read_modify_write(data, SI7210_REG_DSPSIGSEL,
+						SI7210_MASK_DSPSIGSEL, 0);
+		if (ret < 0)
+			return ret;
+
+		ret = si7210_read_modify_write(data, SI7210_REG_ARAUTOINC,
+					SI7210_MASK_ARAUTOINC, SI7210_MASK_ARAUTOINC);
+		if (ret < 0)
+			return ret;
+		
+		ret = si7210_read_modify_write(data, SI7210_REG_POWER_CTRL,
+					SI7210_BIT_ONEBURST | SI7210_BIT_STOP,
+					SI7210_BIT_ONEBURST & ~SI7210_BIT_STOP);
+		if (ret < 0)
+			return ret;
+
+		ret = regmap_bulk_read(data->regmap, SI7210_REG_DSPSIGM, dspsig, sizeof(dspsig));
+		if (ret < 0)
+			return ret;
+		
+		*val = 256 * (dspsig[0] & 0x7F) + dspsig[1];
+		return IIO_VAL_INT;
+	case IIO_CHAN_INFO_SCALE:
+		/* TODO: the default scale should be deduced based on the part no. 
+		In here we assume the usual scale 20mT */
+		*val = 0;
+		*val2 = 1250;
+		return IIO_VAL_INT_PLUS_MICRO;
+	case IIO_CHAN_INFO_OFFSET:
+		*val = 16384;
+		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_PROCESSED:
 		if (chan->type != IIO_TEMP)
 			return -EINVAL;
