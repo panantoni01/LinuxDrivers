@@ -153,9 +153,6 @@ static int si7210_read_raw(struct iio_dev *indio_dev,
 		*val = 16384;
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_PROCESSED:
-		if (chan->type != IIO_TEMP)
-			return -EINVAL;
-
 		ret = si7210_fetch_measurement(data, chan, dspsig);
 		if (ret < 0)
 			return ret;
