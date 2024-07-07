@@ -13,6 +13,7 @@
 #include <linux/iio/iio.h>
 #include <linux/regmap.h>
 #include <linux/math64.h>
+#include <linux/mutex.h>
 
 #define SI7210_REG_DSPSIGM	0xC1
 #define SI7210_REG_DSPSIGL	0xC2
@@ -76,6 +77,8 @@ struct si7210_data {
 	struct regmap *regmap;
 	u8 temp_offset;
 	u8 temp_gain;
+	struct mutex fetch_lock;
+	struct mutex otp_lock;
 };
 
 static const struct iio_chan_spec si7210_channels[] = {
@@ -102,6 +105,8 @@ static int si7210_fetch_measurement(struct si7210_data* data,
 	else /* IIO_TEMP */
 		dspsigsel = 1;
 
+	mutex_lock(&data->fetch_lock);
+
 	ret = regmap_update_bits(data->regmap, SI7210_REG_DSPSIGSEL,
 				SI7210_MASK_DSPSIGSEL, dspsigsel);
 	if (ret < 0)
@@ -122,6 +127,8 @@ static int si7210_fetch_measurement(struct si7210_data* data,
 	ret = regmap_bulk_read(data->regmap, SI7210_REG_DSPSIGM, buf, 2);
 	if (ret < 0)
 		return ret;
+
+	mutex_unlock(&data->fetch_lock);
 
 	return 0;
 }
@@ -178,6 +185,8 @@ static int si7210_read_otpreg_val(struct si7210_data *data, unsigned int otpreg,
 {
 	int ret;
 
+	mutex_lock(&data->otp_lock);
+
 	ret = regmap_write(data->regmap, SI7210_REG_OTP_ADDR, otpreg);
 	if (ret < 0)
 		return ret;
@@ -190,6 +199,8 @@ static int si7210_read_otpreg_val(struct si7210_data *data, unsigned int otpreg,
 	ret = regmap_read(data->regmap, SI7210_REG_OTP_DATA, (unsigned int *)val);
 	if (ret < 0)
 		return ret;
+
+	mutex_unlock(&data->otp_lock);
 
 	return 0;
 }
@@ -248,6 +259,9 @@ static int si7210_probe(struct i2c_client *client,
 	data = iio_priv(indio_dev);
 	i2c_set_clientdata(client, indio_dev);
 	data->client = client;
+
+	mutex_init(&data->fetch_lock);
+	mutex_init(&data->otp_lock);
 
 	data->regmap = devm_regmap_init_i2c(client, &si7210_regmap_conf);
 	if (IS_ERR(data->regmap))
