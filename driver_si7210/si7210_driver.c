@@ -19,8 +19,8 @@
 #define SI7210_REG_DSPSIGL	0xC2
 #define SI7210_MASK_DSPSIGSEL	GENMASK(2, 0)
 #define SI7210_REG_DSPSIGSEL	0xC3
-#define SI7210_BIT_STOP		BIT(1)
-#define SI7210_BIT_ONEBURST	BIT(2)
+#define SI7210_MASK_STOP	BIT(1)
+#define SI7210_MASK_ONEBURST	BIT(2)
 #define SI7210_REG_POWER_CTRL	0xC4
 #define SI7210_MASK_ARAUTOINC	BIT(0)
 #define SI7210_REG_ARAUTOINC	0xC5
@@ -118,8 +118,8 @@ static int si7210_fetch_measurement(struct si7210_data* data,
 		return ret;
 	
 	ret = regmap_update_bits(data->regmap, SI7210_REG_POWER_CTRL,
-				SI7210_BIT_ONEBURST | SI7210_BIT_STOP,
-				SI7210_BIT_ONEBURST & ~SI7210_BIT_STOP);
+				SI7210_MASK_ONEBURST | SI7210_MASK_STOP,
+				SI7210_MASK_ONEBURST & ~SI7210_MASK_STOP);
 	if (ret < 0)
 		return ret;
 
