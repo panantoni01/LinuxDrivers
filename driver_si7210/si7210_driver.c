@@ -14,6 +14,10 @@
 #include <linux/regmap.h>
 #include <linux/math64.h>
 #include <linux/mutex.h>
+#include <linux/irq.h>
+#include <linux/interrupt.h>
+#include <linux/iio/events.h>
+#include <linux/log2.h>
 
 #define SI7210_REG_DSPSIGM	0xC1
 #define SI7210_REG_DSPSIGL	0xC2
@@ -24,6 +28,15 @@
 #define SI7210_REG_POWER_CTRL	0xC4
 #define SI7210_MASK_ARAUTOINC	BIT(0)
 #define SI7210_REG_ARAUTOINC	0xC5
+#define SI7210_MASK_LOW4FIELD	BIT(7)
+#define SI7210_MASK_OP		GENMASK(6, 0)
+#define SI7210_REG_THRESHOLD	0xC6
+#define SI7210_MASK_FIELDPOLSEL	GENMASK(7, 6)
+#define SI7210_MASK_HYST	GENMASK(5, 0)
+#define SI7210_REG_HYSTERESIS	0xC7
+#define SI7210_MASK_TAMPER	GENMASK(7, 2)
+#define SI7210_REG_TAMPER	0xC9
+
 #define SI7210_REG_OTP_ADDR	0xE1
 #define SI7210_REG_OTP_DATA	0xE2
 #define SI7210_MASK_OTP_READ_EN	BIT(1)
@@ -33,7 +46,8 @@
 #define SI7210_OTPREG_TMP_GAIN	0x1E
 
 static const struct regmap_range si7210_read_reg_ranges[] = {
-	regmap_reg_range(SI7210_REG_DSPSIGM, SI7210_REG_ARAUTOINC),
+	regmap_reg_range(SI7210_REG_DSPSIGM, SI7210_REG_HYSTERESIS),
+	regmap_reg_range(SI7210_REG_TAMPER, SI7210_REG_TAMPER),
 	regmap_reg_range(SI7210_REG_OTP_ADDR, SI7210_REG_OTP_CTRL),
 };
 
@@ -43,7 +57,8 @@ static const struct regmap_access_table si7210_readable_regs = {
 };
 
 static const struct regmap_range si7210_write_reg_ranges[] = {
-	regmap_reg_range(SI7210_REG_DSPSIGSEL, SI7210_REG_ARAUTOINC),
+	regmap_reg_range(SI7210_REG_DSPSIGSEL, SI7210_REG_HYSTERESIS),
+	regmap_reg_range(SI7210_REG_TAMPER, SI7210_REG_TAMPER),
 	regmap_reg_range(SI7210_REG_OTP_ADDR, SI7210_REG_OTP_CTRL),
 };
 
@@ -81,17 +96,145 @@ struct si7210_data {
 	struct mutex otp_lock;
 };
 
+static const struct iio_event_spec si7210_magn_event[] = {
+	{
+		.type = IIO_EV_TYPE_THRESH,
+		.dir = IIO_EV_DIR_RISING,
+		.mask_separate = BIT(IIO_EV_INFO_VALUE) |
+		BIT(IIO_EV_INFO_HYSTERESIS),
+	},
+};
+
 static const struct iio_chan_spec si7210_channels[] = {
 	{
 		.type = IIO_MAGN,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
-			BIT(IIO_CHAN_INFO_SCALE) | BIT(IIO_CHAN_INFO_OFFSET)
+			BIT(IIO_CHAN_INFO_SCALE) | BIT(IIO_CHAN_INFO_OFFSET),
+		.event_spec = si7210_magn_event,
+		.num_event_specs = ARRAY_SIZE(si7210_magn_event)
 	},
 	{
 		.type = IIO_TEMP,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_PROCESSED)
 	}
 };
+
+static inline int is_threshold_zero(int threshold) {
+	/* From the datasheet: "threshold = 0, when sw_op = 127" */
+	return ((threshold & SI7210_MASK_OP) == SI7210_MASK_OP);
+}
+
+static inline int is_hysteresis_zero(int hysteresis) {
+	/* "When sw_hyst = 63, the hysteresis is set to zero" */
+	return ((hysteresis & SI7210_MASK_HYST) == SI7210_MASK_HYST);
+}
+
+static int si7210_read_event(struct iio_dev *indio_dev,
+		const struct iio_chan_spec *chan, enum iio_event_type type,
+		enum iio_event_direction dir, enum iio_event_info info,
+		int *val, int *val2)
+{
+	struct si7210_data *data = iio_priv(indio_dev);
+	int ret, raw_thresh, raw_hyst, thresh, hyst;
+
+	ret = regmap_read(data->regmap, SI7210_REG_THRESHOLD, &raw_thresh);
+	if (ret < 0)
+		return ret;
+
+	if (info == IIO_EV_INFO_VALUE) {
+		if (is_threshold_zero(raw_thresh))
+			thresh = 0;
+		else
+			thresh = (16 + (raw_thresh & 0x0F)) *
+				 (1 << ((raw_thresh & 0x70) >> 4)) * 5;
+
+		*val = thresh / 1000;
+		*val2 = 1000 * (thresh % 1000);
+	} else {
+		ret = regmap_read(data->regmap, SI7210_REG_HYSTERESIS, &raw_hyst);
+		if (ret < 0)
+			return ret;
+
+		if (is_hysteresis_zero(raw_hyst))
+			hyst = 0;
+		else
+			hyst = (8 + (raw_hyst & 0x7)) * (1 << ((raw_hyst & 0x38) >> 3)) * 5;
+
+		/* "If sw_op = 127, (...) the hysteresis is multiplied by 2" */
+		if (is_threshold_zero(raw_thresh))
+			hyst *= 2;
+
+		*val = hyst / 1000;
+		*val2 = 1000 * (hyst % 1000);
+	}
+
+	return IIO_VAL_INT_PLUS_MICRO;
+}
+
+static int si7210_write_event(struct iio_dev *indio_dev,
+		const struct iio_chan_spec *chan, enum iio_event_type type,
+		enum iio_event_direction dir, enum iio_event_info info,
+		int val, int val2)
+{
+	struct si7210_data *data = iio_priv(indio_dev);
+	int ret, raw_thresh;
+
+	if (val < 0)
+		return -EINVAL;
+
+	val = (val * 1000 + val2 / 1000) / 5;
+
+	if (info == IIO_EV_INFO_VALUE) {
+		if (val < 16)
+			/* "threshold = 0, when sw_op = 127" */
+			val = SI7210_MASK_OP;
+		else {
+			val = clamp_val(val, 16, 3840);
+			val = (ilog2(val / 16) << 4) | (val / (1 << ilog2(val / 16)) - 16);
+		}
+
+		ret = regmap_update_bits(data->regmap, SI7210_REG_THRESHOLD,
+					SI7210_MASK_OP, val);
+		if (ret < 0)
+			return ret;
+
+	} else { /* IIO_EV_INFO_HYSTERESIS */
+		ret = regmap_read(data->regmap, SI7210_REG_THRESHOLD, &raw_thresh);
+		if (ret < 0)
+			return ret;
+
+		if (is_threshold_zero(raw_thresh))
+			val /= 2;
+
+		if (val < 8)
+			/* "When sw_hyst = 63, the hysteresis is set to zero" */
+			val = SI7210_MASK_HYST;
+		else {
+			val = clamp_val(val, 8, 1792);
+			val = (ilog2(val / 8) << 3) | (val / (1 << ilog2(val / 8)) - 8);
+		}
+
+		ret = regmap_update_bits(data->regmap, SI7210_REG_HYSTERESIS,
+					SI7210_MASK_HYST, val);
+		if (ret < 0)
+			return ret;
+	}
+
+	return 0;
+}
+
+static irqreturn_t si7210_interrupt_handler(int irq, void *private)
+{
+	struct iio_dev *indio_dev = private;
+
+	iio_push_event(indio_dev,
+			IIO_UNMOD_EVENT_CODE(IIO_MAGN, 0,
+				IIO_EV_TYPE_THRESH,
+				IIO_EV_DIR_RISING),
+			iio_get_time_ns(indio_dev));
+
+	return IRQ_HANDLED;
+}
 
 static int si7210_fetch_measurement(struct si7210_data* data,
 				    struct iio_chan_spec const *chan,
@@ -227,22 +370,52 @@ static int si7210_device_init(struct si7210_data *data)
 {
 	int ret;
 
+	ret = si7210_device_wake(data);
+	if (ret < 0)
+		return ret;
+
 	ret = si7210_read_otpreg_val(data, SI7210_OTPREG_TMP_GAIN, &data->temp_gain);
 	if (ret < 0)
-		return 0;
+		return ret;
 	ret = si7210_read_otpreg_val(data, SI7210_OTPREG_TMP_OFF, &data->temp_offset);
 	if (ret < 0)
-		return 0;
+		return ret;
 
-	si7210_device_wake(data);
+	ret = regmap_update_bits(data->regmap, SI7210_REG_THRESHOLD,
+				SI7210_MASK_LOW4FIELD, ~SI7210_MASK_LOW4FIELD);
+	if (ret < 0)
+		return ret;
 
-	msleep(1);
+	/* "threshold = 0, when sw_op = 127" */
+	ret = regmap_update_bits(data->regmap, SI7210_REG_THRESHOLD,
+				SI7210_MASK_OP, SI7210_MASK_OP);
+	if (ret < 0)
+		return ret;
+
+	/* "When sw_hyst = 63, the hysteresis is set to zero" */
+	ret = regmap_update_bits(data->regmap, SI7210_REG_HYSTERESIS,
+				SI7210_MASK_HYST, SI7210_MASK_HYST);
+	if (ret < 0)
+		return ret;
+
+	ret = regmap_update_bits(data->regmap, SI7210_REG_HYSTERESIS,
+				SI7210_MASK_FIELDPOLSEL, ~SI7210_MASK_FIELDPOLSEL);
+	if (ret < 0)
+		return ret;
+
+	/* "The tamper feature is disabled if sw_tamper = 63" */
+	ret = regmap_update_bits(data->regmap, SI7210_REG_TAMPER,
+				SI7210_MASK_TAMPER, SI7210_MASK_TAMPER);
+	if (ret < 0)
+		return ret;
 
 	return 0;
 }
 
 static const struct iio_info si7210_info = {
 	.read_raw = si7210_read_raw,
+	.read_event_value = si7210_read_event,
+	.write_event_value = si7210_write_event,
 };
 
 static int si7210_probe(struct i2c_client *client,
@@ -277,6 +450,17 @@ static int si7210_probe(struct i2c_client *client,
 	ret = si7210_device_init(data);
 	if (ret)
 		return dev_err_probe(&client->dev, ret, "device initialization failed\n");
+
+	if (client->irq) {
+		ret = devm_request_threaded_irq(&client->dev, client->irq,
+				NULL, si7210_interrupt_handler,
+				IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+				indio_dev->name, indio_dev);
+		if (ret) {
+			dev_err_probe(&client->dev, ret, "irq request error\n");
+			return ret;
+		}
+	}
 
 	return devm_iio_device_register(&client->dev, indio_dev);
 }
