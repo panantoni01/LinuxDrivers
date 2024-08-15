@@ -1,0 +1,99 @@
+/dts-v1/;
+
+/ {
+	#address-cells = <0x01>;
+	#size-cells = <0x01>;
+
+	chosen {
+		bootargs = "mem=256M@0x40000000 rootwait console=liteuart earlycon=sbi root=/dev/ram0 init=/sbin/init swiotlb=32";
+		linux,initrd-start = <0x42000000>;
+		linux,initrd-end = <0x45000000>;
+	};
+
+	cpus {
+		#address-cells = <0x01>;
+		#size-cells = <0x00>;
+		timebase-frequency = <0x5f5e100>;
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "riscv";
+			riscv,isa = "rv32ima_zicsr_zifencei";
+			mmu-type = "riscv,sv32";
+			reg = <0x00>;
+			status = "okay";
+
+			interrupt-controller {
+				#interrupt-cells = <0x01>;
+				interrupt-controller;
+				compatible = "riscv,cpu-intc";
+				phandle = <0x01>;
+			};
+		};
+	};
+
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0x40000000 0x10000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <0x01>;
+		#size-cells = <0x01>;
+		ranges;
+
+		opensbi@40f00000 {
+			reg = <0x40f00000 0x80000>;
+		};
+	};
+
+	soc {
+		#address-cells = <0x01>;
+		#size-cells = <0x01>;
+		bus-frequency = <0x5f5e100>;
+		compatible = "simple-bus";
+		ranges;
+
+		soc_controller@f0000000 {
+			compatible = "litex,soc_controller";
+			reg = <0xf0000000 0x0c>;
+			status = "okay";
+		};
+
+		plic: interrupt-controller@f0c00000 {
+			compatible = "sifive,plic-1.0.0\0sifive,fu540-c000-plic";
+			reg = <0xf0c00000 0x400000>;
+			#interrupt-cells = <0x01>;
+			interrupt-controller;
+			interrupts-extended = <0x01 0x0b 0x01 0x09>;
+			riscv,ndev = <0x32>;
+		};
+
+		serial@f0001000 {
+			device_type = "serial";
+			compatible = "litex,liteuart";
+			reg = <0xf0001000 0x100>;
+			status = "okay";
+		};
+		virtio@100d0000 {
+			compatible = "virtio,mmio";
+			reg = <0x100d0000 0x1000>;
+			interrupts = <2>;
+			interrupt-parent = <&plic>;
+		};
+		i2c_0@f0009800 {
+			compatible = "litex,i2c";
+			reg = <0xf0009800 0x10>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			si7021_0@40 {
+				compatible = "si7021";
+				reg = <0x40>;
+			};
+		};
+	};
+
+	aliases {
+		serial0 = "/soc/serial@f0001000";
+	};
+};

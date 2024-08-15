@@ -1,0 +1,5 @@
+$platform?=@driver_iio_si7020/scripts/platform.repl
+$dtb?=@driver_iio_si7020/build/rv32.dtb
+$virtio?=@driver_iio_si7020/drive.img
+
+include @scripts/litex_template.resc

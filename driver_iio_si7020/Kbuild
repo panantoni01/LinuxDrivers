@@ -1,0 +1,2 @@
+obj-m := si7020_iio_driver.o
+

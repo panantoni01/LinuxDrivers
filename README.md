@@ -4,6 +4,7 @@ This repository contains source code for some Linux character device drivers tha
 * [driver_calc](https://github.com/panantoni01/Linux_Driver_Virtual/tree/main/driver_calc) - driver of a simple arithmetic peripheral, that is capable of performing +,-,*,/ operations
 * [driver_litex_gpio](https://github.com/panantoni01/Linux_Driver_Virtual/tree/main/driver_litex_gpio) - driver of a LiteX's GPIO device that counts the number interrupts raised from the device
 * [driver_si7021](https://github.com/panantoni01/Linux_Driver_Virtual/tree/main/driver_si7021) - driver of Silabs' SI7021 humidity and temperature sensor, connected via I2C
+* [driver_iio_si7020](https://github.com/panantoni01/Linux_Driver_Virtual/tree/main) - IIO driver of Silabs' SI702x sensors. This driver was not written from stratch, only the on-chip heater support was added ([link](https://github.com/torvalds/linux/commit/2aac3f9aec74b28ea73ad96efbcc0c56e5ff814f))
 * [driver_si7210](https://github.com/panantoni01/Linux_Driver_Virtual/tree/main/driver_si7210) - IIO driver of Silabs' SI7210 magnetic sensor 
 
 All the drivers can be built and run on a Vexriscv processor that is emulated in [Renode](https://github.com/renode/renode) framework.
