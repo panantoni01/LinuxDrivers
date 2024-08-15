@@ -16,7 +16,7 @@ jobs:
     name: Builds
     strategy:
       matrix:
-        driver_dir: [driver_calc, driver_litex_gpio, driver_si7021, driver_si7210]
+        driver_dir: [driver_calc, driver_litex_gpio, driver_iio_si7020, driver_si7021, driver_si7210]
     needs: [ verify_format ]
     runs-on: ubuntu-latest
     container: panantoni01/linux-drivers:squashed
