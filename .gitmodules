@@ -1,7 +1,7 @@
 [submodule "third_party/linux"]
 	path = third_party/linux
 	url = https://github.com/antmicro/linux.git
-	branch = litex-rebase
+	branch = litex-rebase-6
 [submodule "third_party/buildroot"]
 	path = third_party/buildroot
 	url = https://github.com/buildroot/buildroot.git

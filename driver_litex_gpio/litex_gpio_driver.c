@@ -287,7 +287,7 @@ int init_module(void)
 	}
 	gpio_major = MAJOR(dev);
 
-	gpio_class = class_create(THIS_MODULE, "gpio");
+	gpio_class = class_create("gpio");
 	if (IS_ERR(gpio_class)) {
 		printk(KERN_ERR "gpio_driver: cannot create gpio class\n");
 		goto err_unreg;

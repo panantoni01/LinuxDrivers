@@ -256,7 +256,7 @@ int init_module(void)
 	}
 	calc_major = MAJOR(dev);
 
-	calc_class = class_create(THIS_MODULE, "calc_class");
+	calc_class = class_create("calc_class");
 	if (IS_ERR(calc_class)) {
 		printk(KERN_ERR "calc_driver: cannot create calc_class\n");
 		goto err_unreg;

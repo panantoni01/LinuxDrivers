@@ -222,8 +222,7 @@ static int get_si7021_minor(void)
 	return -1;
 }
 
-static int si7021_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static int si7021_probe(struct i2c_client *client)
 {
 	long ret;
 	struct si7021_data *data;
@@ -280,7 +279,7 @@ err_min_ret:
 	return ret;
 }
 
-static int si7021_remove(struct i2c_client *client)
+static void si7021_remove(struct i2c_client *client)
 {
 	struct si7021_data *data;
 	unsigned int minor;
@@ -292,8 +291,6 @@ static int si7021_remove(struct i2c_client *client)
 	si7021_minors[minor] = 0;
 
 	device_destroy(si7021_class, MKDEV(si7021_major, minor));
-
-	return 0;
 }
 
 static const struct of_device_id si7021_dt_ids[] = { { .compatible = "si7021" },
@@ -323,7 +320,7 @@ static int __init si7021_init(void)
 	}
 	si7021_major = MAJOR(dev);
 
-	si7021_class = class_create(THIS_MODULE, "thermal");
+	si7021_class = class_create("thermal");
 	if (IS_ERR(si7021_class)) {
 		printk(KERN_ERR "si7021_driver: cannot create si7021 class\n");
 		goto err_unreg;
