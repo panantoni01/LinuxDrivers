@@ -20,5 +20,6 @@ RUN rm -rf buildroot build/buildroot/build build/buildroot/staging
 # Add cross compiler path
 ENV PATH="/root/build/buildroot/host/bin:$PATH"
 # Build linux
+RUN git config --global http.version HTTP/1.1
 RUN git clone --depth 1 --branch litex-rebase https://github.com/antmicro/linux.git
 RUN make -C $(pwd)/linux -j$(nproc) O=$(pwd)/build/linux/

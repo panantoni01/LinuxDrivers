@@ -49,4 +49,6 @@ sysbus:
 i2c0: I2C.LiteX_I2C @ { sysbus 0xf0009800 }
 
 si7021_0: Sensors.SI7210 @ i2c0 0x30
+    offset: 16
+    gain: 4
 
